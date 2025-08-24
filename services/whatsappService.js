@@ -8,22 +8,27 @@ class WhatsAppService {
     this.baseUrl = 'https://graph.facebook.com/v22.0';
   }
 
-  // Generate a random 6-digit OTP
-  generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  }
-
-
-
   // Send OTP message via WhatsApp using template
-  async sendOTP(phoneNumber) {
+  async sendOTP(phoneNumber, ipAddress, userAgent) {
     try {
-      // Generate a 6-digit OTP
-      const otp = this.generateOTP();
-      
       // Format phone number
       const formattedPhone = this.formatPhoneNumber(phoneNumber);
       
+      // Check if IP is blocked
+      const ipBlockCheck = otpStorage.isIPBlocked(ipAddress);
+      if (ipBlockCheck.blocked) {
+        throw new Error(`IP blocked: ${ipBlockCheck.reason}. Try again in ${Math.ceil(ipBlockCheck.remainingTime / 60000)} minutes.`);
+      }
+      
+      // Check rate limiting
+      const rateLimitCheck = otpStorage.checkRateLimit(formattedPhone, ipAddress);
+      if (!rateLimitCheck.allowed) {
+        throw new Error(rateLimitCheck.reason);
+      }
+      
+      // Generate and store OTP securely
+      const otp = otpStorage.storeOTP(formattedPhone, ipAddress, userAgent);
+
       const messageData = {
         messaging_product: 'whatsapp',
         to: formattedPhone,
@@ -50,12 +55,13 @@ class WhatsAppService {
               parameters: [
                 {
                   type: 'text',
-                  text:  otp
+                  text: otp
                 }
               ]
-             }
+            }
           ]
-        }
+        },
+        otp_type: 'COPY_CODE'
       };
 
       const response = await axios.post(
@@ -71,21 +77,23 @@ class WhatsAppService {
 
       console.log('WhatsApp OTP sent successfully:', response.data);
       
-      // Store OTP for verification
-      otpStorage.storeOTP(formattedPhone, otp);
-      
-      return { 
-        success: true, 
+      return {
+        success: true,
         messageId: response.data.messages[0].id,
-        otp: otp // Return the OTP for verification (in production, don't return this)
+        // Don't return OTP in production response for security
+        message: 'OTP sent successfully'
       };
     } catch (error) {
       console.error('Error sending WhatsApp OTP:', error.response?.data || error.message);
+      
+      // Handle specific security errors
+      if (error.message.includes('IP blocked') || error.message.includes('Rate limit')) {
+        throw new Error(error.message);
+      }
+      
       throw new Error('Failed to send OTP via WhatsApp');
     }
   }
-
-
 
   // Format phone number for WhatsApp API
   formatPhoneNumber(phoneNumber) {
