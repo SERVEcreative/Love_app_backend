@@ -3,6 +3,9 @@ const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 const whatsappService = require('../services/whatsappService');
 const otpStorage = require('../services/otpStorage');
+const userService = require('../services/userService');
+const { supabase, supabaseAdmin } = require('../config/supabase');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -101,7 +104,7 @@ router.post('/send-otp', async (req, res) => {
   }
 });
 
-// Verify OTP
+// Verify OTP and create/update user
 router.post('/verify-otp', async (req, res) => {
   try {
     // Get client information for security
@@ -144,14 +147,101 @@ router.post('/verify-otp', async (req, res) => {
     const result = otpStorage.verifyOTP(formattedPhone, otp, clientIP, userAgent);
     
     if (result.success) {
-      // Generate JWT token with enhanced security (fixed - removed conflicting exp property)
+      console.log('✅ OTP verified successfully for:', formattedPhone);
+      
+      // Check if user already exists
+      const { data: existingUser, error: fetchError } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('phone_number', formattedPhone)
+        .single();
+
+      let user;
+      let isNewUser = false;
+
+      if (existingUser) {
+        // User exists - update login info
+        console.log('🔄 Existing user found, updating login info');
+        const { data: updatedUser, error: updateError } = await supabaseAdmin
+          .from('users')
+          .update({
+            last_login_at: new Date().toISOString(),
+            login_count: existingUser.login_count + 1,
+            status: 'online',
+            updated_at: new Date().toISOString()
+          })
+          .eq('phone_number', formattedPhone)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('Error updating user:', updateError);
+          return res.status(500).json({
+            error: 'Failed to update user',
+            message: updateError.message
+          });
+        }
+
+        user = updatedUser;
+      } else {
+        // New user - create user
+        console.log('🆕 New user, creating account');
+        isNewUser = true;
+        
+        const userData = {
+          phone_number: formattedPhone,
+          is_verified: true,
+          verification_status: 'verified',
+          verification_date: new Date().toISOString(),
+          last_login_at: new Date().toISOString(),
+          login_count: 1,
+          profile_completion_percentage: 30,
+          status: 'online'
+        };
+
+        const { data: newUser, error: insertError } = await supabaseAdmin
+          .from('users')
+          .insert([userData])
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Error creating user:', insertError);
+          return res.status(500).json({
+            error: 'Failed to create user',
+            message: insertError.message
+          });
+        }
+
+        user = newUser;
+
+        // Create default preferences for new user
+        const { error: prefError } = await supabaseAdmin
+          .from('user_preferences')
+          .insert({
+            user_id: user.id,
+            push_notifications: true,
+            email_notifications: true,
+            sms_notifications: false,
+            privacy_level: 'public',
+            show_online_status: true,
+            show_last_seen: true,
+            allow_profile_views: true
+          });
+
+        if (prefError) {
+          console.error('Error creating preferences:', prefError);
+        }
+      }
+      
+      // Generate JWT token with enhanced security
       const token = jwt.sign(
         { 
+          userId: user.id,
           phoneNumber: formattedPhone,
           ip: clientIP,
           deviceId: otpStorage.generateDeviceId(userAgent, clientIP),
           iat: Math.floor(Date.now() / 1000)
-          // Removed 'exp' property - expiresIn option handles it
         },
         process.env.JWT_SECRET,
         { 
@@ -161,13 +251,27 @@ router.post('/verify-otp', async (req, res) => {
         }
       );
 
+      // Check if user has complete profile
+      const hasCompleteProfile = user.name && user.profile_completion_percentage >= 80;
+
       res.status(200).json({
         success: true,
         message: result.message,
         token: token,
         user: {
-          phoneNumber: formattedPhone
-        }
+          id: user.id,
+          phoneNumber: formattedPhone,
+          name: user.name,
+          isVerified: user.is_verified,
+          verificationStatus: user.verification_status,
+          profileCompletion: user.profile_completion_percentage,
+          createdAt: user.created_at,
+          loginCount: user.login_count
+        },
+        isNewUser: isNewUser,
+        hasCompleteProfile: hasCompleteProfile,
+        requiresProfileCompletion: !hasCompleteProfile,
+        redirectTo: hasCompleteProfile ? 'dashboard' : 'profile-completion'
       });
     } else {
       // Handle blocked IP after failed attempts
@@ -193,6 +297,81 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
+// Create user profile after OTP verification
+router.post('/create-profile', authenticateToken, async (req, res) => {
+  try {
+    // Validate request body (without token)
+    const createProfileSchema = Joi.object({
+      name: Joi.string().min(2).max(50).required(),
+      age: Joi.number().integer().min(18).max(100).required(),
+      gender: Joi.string().valid('male', 'female', 'other', 'prefer_not_to_say').required()
+    });
+
+    const { error, value } = createProfileSchema.validate(req.body);
+    
+    if (error) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.details[0].message
+      });
+    }
+
+    const { name, age, gender } = value;
+
+    const userId = req.user.userId;
+    const phoneNumber = req.user.phoneNumber;
+
+    // Calculate date of birth from age
+    const currentYear = new Date().getFullYear();
+    const birthYear = currentYear - age;
+    const dateOfBirth = new Date(birthYear, 0, 1);
+
+    // Update user profile in Supabase using admin client to bypass RLS
+    const { data: updatedUser, error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        name: name,
+        date_of_birth: dateOfBirth.toISOString().split('T')[0],
+        gender: gender,
+        profile_completion_percentage: 80, // Higher completion with basic info
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating user profile:', updateError);
+      return res.status(500).json({
+        error: 'Failed to update profile',
+        message: updateError.message
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile created successfully',
+      user: {
+        id: updatedUser.id,
+        phoneNumber: updatedUser.phone_number,
+        name: updatedUser.name,
+        age: age,
+        gender: updatedUser.gender,
+        isVerified: updatedUser.is_verified,
+        profileCompletion: updatedUser.profile_completion_percentage,
+        createdAt: updatedUser.created_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Create profile error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
 // Security status endpoint (for debugging - remove in production)
 router.get('/security-status/:phoneNumber', (req, res) => {
   try {
@@ -210,6 +389,63 @@ router.get('/security-status/:phoneNumber', (req, res) => {
       ipBlockInfo
     });
   } catch (error) {
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// Debug endpoint to show complete user data in database (remove in production)
+router.get('/debug-user/:phoneNumber', async (req, res) => {
+  try {
+    const { phoneNumber } = req.params;
+    const formattedPhone = whatsappService.formatPhoneNumber(phoneNumber);
+    
+    // Get user from database
+    const userResult = await userService.getUserByPhone(formattedPhone);
+    
+    if (!userResult.success) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: userResult.error
+      });
+    }
+
+    // Get user preferences
+    const { data: preferences } = await supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', userResult.user.id)
+      .single();
+
+    // Get user activity logs
+    const { data: activityLogs } = await supabase
+      .from('user_activity_logs')
+      .select('*')
+      .eq('user_id', userResult.user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    res.json({
+      success: true,
+      message: 'Complete user data from database',
+      user: userResult.user,
+      preferences: preferences || {},
+      recentActivity: activityLogs || [],
+      databaseTables: {
+        users: '✅ User profile data',
+        user_preferences: '✅ User preferences',
+        user_activity_logs: '✅ Activity tracking',
+        user_interests: '⏳ Available for interests',
+        user_photos: '⏳ Available for photos',
+        user_connections: '⏳ Available for friends/blocks',
+        user_sessions: '⏳ Available for online status'
+      }
+    });
+
+  } catch (error) {
+    console.error('Debug user error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: error.message

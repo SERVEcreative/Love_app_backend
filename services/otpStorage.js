@@ -8,9 +8,9 @@ class SecureOTPStorage {
     
     // Security configurations
     this.OTP_EXPIRY_MINUTES = 5; // Reduced from 10 to 5 minutes for security
-    this.MAX_ATTEMPTS = 3; // Maximum verification attempts
+    this.MAX_ATTEMPTS = 10; // Maximum verification attempts
     this.RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
-    this.MAX_REQUESTS_PER_WINDOW = 3; // Max OTP requests per 15 minutes
+    this.MAX_REQUESTS_PER_WINDOW = 10; // Max OTP requests per 15 minutes
     this.BLOCK_DURATION = 30 * 60 * 1000; // 30 minutes block for excessive attempts
     this.IP_BLOCK_DURATION = 60 * 60 * 1000; // 1 hour block for suspicious IPs
     

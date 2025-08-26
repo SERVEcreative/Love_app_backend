@@ -19,6 +19,7 @@ const {
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -76,6 +77,9 @@ app.use('/api/auth', otpRateLimit, authRoutes);
 
 // Apply verification rate limit specifically to verify endpoint
 app.use('/api/auth/verify-otp', verifyRateLimit);
+
+// User management routes
+app.use('/api/users', userRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

@@ -1,6 +1,6 @@
-# 🔐 WhatsApp OTP Authentication Backend
+# 🔐 WhatsApp OTP Authentication Backend with User Management
 
-A production-ready, secure WhatsApp OTP authentication system built with Node.js, Express, and WhatsApp Cloud API.
+A production-ready, secure WhatsApp OTP authentication system with comprehensive user management, built with Node.js, Express, WhatsApp Cloud API, and Supabase.
 
 ## 🚀 Features
 
@@ -9,6 +9,14 @@ A production-ready, secure WhatsApp OTP authentication system built with Node.js
 - **Template-based Messaging**: Uses `otp_verification` template
 - **JWT Token Generation**: Secure authentication tokens
 - **Phone Number Validation**: Comprehensive validation and formatting
+
+### 👤 User Management
+- **User Profile System**: Complete user profiles with Supabase integration
+- **Profile Completion Tracking**: Automatic profile completion percentage calculation
+- **User Preferences**: Customizable app settings and privacy controls
+- **User Search & Discovery**: Advanced user search with filters
+- **Activity Logging**: Comprehensive user activity tracking
+- **User Statistics**: Profile completion and connection statistics
 
 ### 🔒 Production-Ready Security Features
 
@@ -59,6 +67,8 @@ A production-ready, secure WhatsApp OTP authentication system built with Node.js
 - Node.js 16+ 
 - WhatsApp Business API access
 - Valid WhatsApp template (`otp_verification`)
+- Supabase account and project
+- Redis server (optional, for production)
 
 ## 🛠️ Installation
 
@@ -86,16 +96,25 @@ FRONTEND_URL=https://your-frontend.com
 WHATSAPP_ACCESS_TOKEN=your_whatsapp_access_token
 WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
 JWT_SECRET=your_very_secure_jwt_secret
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-5. **Start the server**
+5. **Set up database schema**
+```bash
+npm run setup-db
+```
+
+6. **Start the server**
 ```bash
 npm start
 ```
 
 ## 🔧 API Endpoints
 
-### **POST /api/auth/send-otp**
+### Authentication Endpoints
+
+#### **POST /api/auth/send-otp**
 Send OTP via WhatsApp
 
 **Request:**
@@ -147,6 +166,108 @@ Health check endpoint
   "timestamp": "2024-01-01T00:00:00.000Z",
   "uptime": 3600,
   "environment": "production"
+}
+```
+
+### User Management Endpoints
+
+#### **GET /api/users/profile**
+Get current user profile (requires authentication)
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "uuid",
+    "phone_number": "+916204691688",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "bio": "Software developer",
+    "avatar_url": "https://example.com/avatar.jpg",
+    "is_verified": true,
+    "profile_completion_percentage": 85,
+    "created_at": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+#### **PUT /api/users/profile**
+Update user profile (requires authentication)
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Request:**
+```json
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "bio": "Software developer",
+  "date_of_birth": "1990-01-01",
+  "gender": "male",
+  "location": "New York, USA",
+  "avatar_url": "https://example.com/avatar.jpg"
+}
+```
+
+#### **GET /api/users/search**
+Search for users (requires authentication)
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Query Parameters:**
+```
+?gender=male&minAge=25&maxAge=35&location=New York&sortBy=recent&limit=20&offset=0
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "users": [
+    {
+      "id": "uuid",
+      "name": "Jane Doe",
+      "avatar_url": "https://example.com/avatar.jpg",
+      "bio": "Designer",
+      "location": "New York, USA",
+      "is_verified": true,
+      "profile_completion_percentage": 90
+    }
+  ],
+  "total": 1
+}
+```
+
+#### **GET /api/users/stats**
+Get user statistics (requires authentication)
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "stats": {
+    "totalConnections": 25,
+    "blockedUsers": 3,
+    "profileCompletion": 85,
+    "loginCount": 15
+  }
 }
 ```
 
