@@ -331,7 +331,7 @@ router.post('/create-profile', authenticateToken, async (req, res) => {
       .from('users')
       .update({
         name: name,
-        date_of_birth: dateOfBirth.toISOString().split('T')[0],
+        age: age,
         gender: gender,
         profile_completion_percentage: 80, // Higher completion with basic info
         updated_at: new Date().toISOString()
@@ -365,6 +365,251 @@ router.post('/create-profile', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Create profile error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// Get complete user profile data
+router.get('/profile', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const phoneNumber = req.user.phoneNumber;
+
+    console.log('📋 Fetching profile for user:', userId);
+
+    // Get user data from database
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (userError) {
+      console.error('Error fetching user:', userError);
+      return res.status(500).json({
+        error: 'Failed to fetch user profile',
+        message: userError.message
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User profile does not exist'
+      });
+    }
+
+    // Get user preferences
+    const { data: preferences, error: prefError } = await supabaseAdmin
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    // Get user photos (primary photo first)
+    const { data: photos, error: photoError } = await supabaseAdmin
+      .from('user_photos')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_approved', true)
+      .order('is_primary', { ascending: false })
+      .order('photo_order', { ascending: true });
+
+    // Get user interests
+    const { data: interests, error: interestError } = await supabaseAdmin
+      .from('user_interests')
+      .select('*')
+      .eq('user_id', userId);
+
+    // Get age directly from database
+    let age = user.age;
+
+    // Format last seen
+    let lastSeen = 'Never';
+    if (user.last_seen) {
+      const lastSeenDate = new Date(user.last_seen);
+      const now = new Date();
+      const diffInMinutes = Math.floor((now - lastSeenDate) / (1000 * 60));
+      
+      if (diffInMinutes < 1) {
+        lastSeen = 'Just now';
+      } else if (diffInMinutes < 60) {
+        lastSeen = `${diffInMinutes} min ago`;
+      } else if (diffInMinutes < 1440) {
+        const hours = Math.floor(diffInMinutes / 60);
+        lastSeen = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+      } else {
+        const days = Math.floor(diffInMinutes / 1440);
+        lastSeen = `${days} day${days > 1 ? 's' : ''} ago`;
+      }
+    }
+
+    // Get primary photo URL
+    let primaryPhotoUrl = '';
+    if (photos && photos.length > 0) {
+      const primaryPhoto = photos.find(photo => photo.is_primary) || photos[0];
+      primaryPhotoUrl = primaryPhoto.photo_url;
+    }
+
+    // Format interests list
+    const interestsList = interests ? interests.map(interest => interest.interest_name) : [];
+
+    // Build complete profile response
+    const profileData = {
+      success: true,
+      message: 'Profile fetched successfully',
+      profile: {
+        // Basic Info
+        id: user.id,
+        phoneNumber: user.phone_number,
+        fullName: user.name || 'Anonymous',
+        email: user.email || '',
+        age: age,
+        gender: user.gender || '',
+        location: user.location || '',
+        bio: user.bio || '',
+        
+        // Profile Images
+        image: primaryPhotoUrl,
+        avatarUrl: user.avatar_url || primaryPhotoUrl,
+        photos: photos ? photos.map(photo => ({
+          id: photo.id,
+          url: photo.photo_url,
+          isPrimary: photo.is_primary,
+          order: photo.photo_order
+        })) : [],
+        
+        // Status & Activity
+        online: user.status === 'online',
+        lastSeen: lastSeen,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+        lastLoginAt: user.last_login_at,
+        loginCount: user.login_count || 0,
+        
+        // Verification & Status
+        isVerified: user.is_verified || false,
+        verificationStatus: user.verification_status || 'pending',
+        isActive: user.is_active || true,
+        isPremium: user.is_premium || false,
+        profileCompletionPercentage: user.profile_completion_percentage || 0,
+        
+        // Interests
+        interests: interestsList,
+        
+        // Preferences
+        preferences: preferences ? {
+          pushNotifications: preferences.push_notifications,
+          emailNotifications: preferences.email_notifications,
+          smsNotifications: preferences.sms_notifications,
+          privacyLevel: preferences.privacy_level,
+          showOnlineStatus: preferences.show_online_status,
+          showLastSeen: preferences.show_last_seen,
+          allowProfileViews: preferences.allow_profile_views
+        } : {
+          pushNotifications: true,
+          emailNotifications: true,
+          smsNotifications: false,
+          privacyLevel: 'public',
+          showOnlineStatus: true,
+          showLastSeen: true,
+          allowProfileViews: true
+        }
+      }
+    };
+
+    console.log('✅ Profile fetched successfully for user:', user.id);
+    res.status(200).json(profileData);
+
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// Update user profile
+router.put('/profile', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Validate request body
+    const updateProfileSchema = Joi.object({
+      name: Joi.string().min(2).max(100).optional(),
+      email: Joi.string().email().optional(),
+      bio: Joi.string().max(500).optional(),
+      location: Joi.string().max(255).optional(),
+      gender: Joi.string().valid('male', 'female', 'other', 'prefer_not_to_say').optional(),
+      dateOfBirth: Joi.date().max('now').optional(),
+      avatarUrl: Joi.string().uri().optional()
+    });
+
+    const { error, value } = updateProfileSchema.validate(req.body);
+    
+    if (error) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.details[0].message
+      });
+    }
+
+    // Prepare update data
+    const updateData = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (value.name) updateData.name = value.name;
+    if (value.email) updateData.email = value.email;
+    if (value.bio) updateData.bio = value.bio;
+    if (value.location) updateData.location = value.location;
+    if (value.gender) updateData.gender = value.gender;
+    if (value.age) updateData.age = parseInt(value.age);
+    if (value.avatarUrl) updateData.avatar_url = value.avatarUrl;
+
+    // Calculate new profile completion percentage
+    const completionFields = ['name', 'email', 'bio', 'location', 'gender', 'age', 'avatar_url'];
+    const completedFields = completionFields.filter(field => updateData[field] || user[field]).length;
+    updateData.profile_completion_percentage = Math.round((completedFields / completionFields.length) * 100);
+
+    // Update user profile
+    const { data: updatedUser, error: updateError } = await supabaseAdmin
+      .from('users')
+      .update(updateData)
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating profile:', updateError);
+      return res.status(500).json({
+        error: 'Failed to update profile',
+        message: updateError.message
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      profile: {
+        id: updatedUser.id,
+        fullName: updatedUser.name,
+        email: updatedUser.email,
+        bio: updatedUser.bio,
+        location: updatedUser.location,
+        gender: updatedUser.gender,
+        avatarUrl: updatedUser.avatar_url,
+        profileCompletionPercentage: updatedUser.profile_completion_percentage,
+        updatedAt: updatedUser.updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Update profile error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: error.message

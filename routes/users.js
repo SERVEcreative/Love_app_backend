@@ -9,11 +9,12 @@ const router = express.Router();
 const updateProfileSchema = Joi.object({
   name: Joi.string().min(2).max(100).optional(),
   email: Joi.string().email().optional(),
-  bio: Joi.string().max(500).optional(),
-  date_of_birth: Joi.date().max('now').optional(),
+  bio: Joi.string().max(500).allow('').optional(),
+  age: Joi.number().integer().min(1).max(120).optional(),
   gender: Joi.string().valid('male', 'female', 'other', 'prefer_not_to_say').optional(),
-  location: Joi.string().max(255).optional(),
-  avatar_url: Joi.string().uri().optional()
+  location: Joi.string().max(255).allow('').optional(),
+  avatar_url: Joi.string().uri().optional(),
+  fullName: Joi.string().max(100).optional() // Added for Flutter compatibility
 });
 
 const updatePreferencesSchema = Joi.object({
@@ -54,43 +55,29 @@ const searchUsersSchema = Joi.object({
   offset: Joi.number().integer().min(0).optional()
 });
 
-// Middleware to extract user from JWT token
-const authenticateUser = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        error: 'Authentication required',
-        message: 'Bearer token is required'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    req.user = decoded;
-    next();
-  } catch (error) {
-    console.error('Authentication error:', error);
-    return res.status(401).json({
-      error: 'Invalid token',
-      message: 'Token is invalid or expired'
-    });
-  }
-};
+// Use the shared authenticateToken middleware instead of local authenticateUser
+const { authenticateToken } = require('../middleware/auth');
 
 // Get current user profile
-router.get('/profile', authenticateUser, async (req, res) => {
+router.get('/profile', authenticateToken, async (req, res) => {
   try {
-    const result = await userService.getUserById(req.user.userId);
+    console.log('🔍 Fetching profile for user ID:', req.user.userId);
     
-    if (!result.success) {
+    const result = await userService.getUserById(req.user.userId);
+    console.log('📋 getUserById result:', result);
+    
+    if (!result || !result.success) {
+      console.log('❌ User not found or error occurred');
       return res.status(404).json({
         error: 'User not found',
-        message: result.error
+        message: result?.error || 'User not found'
       });
     }
 
+    console.log('✅ User found, returning profile data');
+    
+    console.log('✅ User found, returning profile data');
+    
     res.json({
       success: true,
       user: result.user
@@ -105,19 +92,67 @@ router.get('/profile', authenticateUser, async (req, res) => {
 });
 
 // Update user profile
-router.put('/profile', authenticateUser, async (req, res) => {
+router.put('/profile', authenticateToken, async (req, res) => {
   try {
+    console.log('🔄 Updating profile for user ID:', req.user.userId);
+    console.log('📝 Request body:', JSON.stringify(req.body, null, 2));
+    
     // Validate request body
     const { error, value } = updateProfileSchema.validate(req.body);
     
     if (error) {
+      console.log('❌ Validation error:', error.details[0].message);
       return res.status(400).json({
         error: 'Validation failed',
         details: error.details[0].message
       });
     }
 
-    const result = await userService.updateUserProfile(req.user.userId, value);
+    // Transform Flutter fields to database fields
+    const transformedData = { ...value };
+    
+    console.log('🔄 Transforming Flutter data to database format...');
+    
+    // Map Flutter fields to database fields
+    if (transformedData.fullName) {
+      console.log('📝 Mapping fullName -> name:', transformedData.fullName);
+      transformedData.name = transformedData.fullName;
+      delete transformedData.fullName;
+    }
+    
+    if (transformedData.age !== undefined && transformedData.age !== null) {
+      console.log('📝 Processing age field:', transformedData.age, 'Type:', typeof transformedData.age);
+      
+      // Ensure age is a number
+      const ageNumber = parseInt(transformedData.age);
+      if (isNaN(ageNumber)) {
+        console.log('❌ Invalid age value:', transformedData.age);
+        return res.status(400).json({
+          error: 'Invalid age value',
+          message: 'Age must be a valid number'
+        });
+      }
+      
+      // Store age directly (no conversion needed)
+      transformedData.age = ageNumber;
+      console.log('📝 Storing age directly:', ageNumber);
+    } else {
+      console.log('📝 No age field found in request');
+    }
+    
+    // Convert empty strings to null for database
+    if (transformedData.bio === '') {
+      console.log('📝 Converting empty bio to null');
+      transformedData.bio = null;
+    }
+    if (transformedData.location === '') {
+      console.log('📝 Converting empty location to null');
+      transformedData.location = null;
+    }
+
+    console.log('✅ Transformed data:', JSON.stringify(transformedData, null, 2));
+
+    const result = await userService.updateUserProfile(req.user.userId, transformedData);
     
     if (!result.success) {
       return res.status(400).json({
@@ -148,7 +183,7 @@ router.put('/profile', authenticateUser, async (req, res) => {
 });
 
 // Get user preferences
-router.get('/preferences', authenticateUser, async (req, res) => {
+router.get('/preferences', authenticateToken, async (req, res) => {
   try {
     const result = await userService.getUserById(req.user.userId);
     
@@ -173,7 +208,7 @@ router.get('/preferences', authenticateUser, async (req, res) => {
 });
 
 // Update user preferences
-router.put('/preferences', authenticateUser, async (req, res) => {
+router.put('/preferences', authenticateToken, async (req, res) => {
   try {
     // Validate request body
     const { error, value } = updatePreferencesSchema.validate(req.body);
@@ -216,7 +251,7 @@ router.put('/preferences', authenticateUser, async (req, res) => {
 });
 
 // Add user interests
-router.post('/interests', authenticateUser, async (req, res) => {
+router.post('/interests', authenticateToken, async (req, res) => {
   try {
     // Validate request body
     const { error, value } = addInterestsSchema.validate(req.body);
@@ -259,7 +294,7 @@ router.post('/interests', authenticateUser, async (req, res) => {
 });
 
 // Add user photos
-router.post('/photos', authenticateUser, async (req, res) => {
+router.post('/photos', authenticateToken, async (req, res) => {
   try {
     // Validate request body
     const { error, value } = addPhotosSchema.validate(req.body);
@@ -302,7 +337,7 @@ router.post('/photos', authenticateUser, async (req, res) => {
 });
 
 // Search users
-router.get('/search', authenticateUser, async (req, res) => {
+router.get('/search', authenticateToken, async (req, res) => {
   try {
     // Validate query parameters
     const { error, value } = searchUsersSchema.validate(req.query);
@@ -345,7 +380,7 @@ router.get('/search', authenticateUser, async (req, res) => {
 });
 
 // Get user statistics
-router.get('/stats', authenticateUser, async (req, res) => {
+router.get('/stats', authenticateToken, async (req, res) => {
   try {
     const result = await userService.getUserStats(req.user.userId);
     
@@ -370,7 +405,7 @@ router.get('/stats', authenticateUser, async (req, res) => {
 });
 
 // Update user status
-router.put('/status', authenticateUser, async (req, res) => {
+router.put('/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
     
@@ -412,7 +447,7 @@ router.put('/status', authenticateUser, async (req, res) => {
 });
 
 // Get user by ID (public profile)
-router.get('/:userId', authenticateUser, async (req, res) => {
+router.get('/:userId', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
     

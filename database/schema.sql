@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE,
     avatar_url TEXT,
     bio TEXT,
-    date_of_birth DATE,
+    age INTEGER CHECK (age >= 1 AND age <= 120),
     gender VARCHAR(20) CHECK (gender IN ('male', 'female', 'other', 'prefer_not_to_say')),
     location VARCHAR(255),
     status VARCHAR(50) DEFAULT 'online',
@@ -146,7 +146,7 @@ BEGIN
         completion_percentage := completion_percentage + 15;
     END IF;
     
-    IF NEW.date_of_birth IS NOT NULL THEN
+    IF NEW.age IS NOT NULL THEN
         completion_percentage := completion_percentage + 10;
     END IF;
     
