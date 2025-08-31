@@ -1,10 +1,10 @@
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 
-// Rate limiting for OTP endpoints
+// Rate limiting for OTP endpoints (INCREASED FOR DEVELOPMENT)
 const otpRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 50, // Increased from 5 to 50 for development
   message: {
     error: 'Too many OTP requests from this IP',
     message: 'Please try again later.',
@@ -21,10 +21,10 @@ const otpRateLimit = rateLimit({
   }
 });
 
-// Rate limiting for verification endpoints
+// Rate limiting for verification endpoints (INCREASED FOR DEVELOPMENT)
 const verifyRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 verification attempts per windowMs
+  max: 100, // Increased from 10 to 100 for development
   message: {
     error: 'Too many verification attempts from this IP',
     message: 'Please try again later.',

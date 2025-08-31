@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
+const otpStorage = require('../services/otpStorage');
 
 // Middleware to authenticate JWT token
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   try {
     // Get token from Authorization header
     const authHeader = req.headers.authorization;
@@ -15,13 +16,50 @@ const authenticateToken = (req, res, next) => {
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
+    // Check if token is blacklisted (DISABLED FOR NOW)
+    // try {
+    //   const isBlacklisted = otpStorage.isTokenBlacklisted(token);
+    //   if (isBlacklisted) {
+    //     return res.status(401).json({
+    //       error: 'Token invalidated',
+    //       message: 'This token has been logged out. Please login again.'
+    //     });
+    //   }
+    // } catch (blacklistError) {
+    //   console.error('Error checking token blacklist:', blacklistError);
+    //   // Continue with validation even if blacklist check fails
+    // }
+
     // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
+    // Check if user still exists and is active
+    const { supabaseAdmin } = require('../config/supabase');
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, phone_number, is_active, status')
+      .eq('id', decoded.userId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: 'User account does not exist'
+      });
+    }
+
+    if (!user.is_active) {
+      return res.status(401).json({
+        error: 'Account inactive',
+        message: 'Your account has been deactivated'
+      });
+    }
+
     // Add user info to request object
     req.user = {
-      userId: decoded.userId,
-      phoneNumber: decoded.phoneNumber,
+      userId: user.id,
+      phoneNumber: user.phone_number,
+      status: user.status,
       ip: decoded.ip,
       deviceId: decoded.deviceId
     };
@@ -39,6 +77,7 @@ const authenticateToken = (req, res, next) => {
         message: 'Token is invalid or malformed'
       });
     } else {
+      console.error('Authentication error:', error);
       return res.status(500).json({
         error: 'Token verification failed',
         message: 'Internal server error during token verification'

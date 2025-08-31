@@ -219,6 +219,76 @@ class SecureOTPStorage {
     return this.blockedIPs.get(ipAddress);
   }
 
+  // Token blacklist storage
+  tokenBlacklist = new Map();
+
+  // Add token to blacklist
+  addToBlacklist(token, expiryTime) {
+    try {
+      this.tokenBlacklist.set(token, {
+        blacklistedAt: Date.now(),
+        expiresAt: expiryTime * 1000, // Convert to milliseconds
+        reason: 'user_logout'
+      });
+      
+      console.log(`🔒 Token added to blacklist. Expires at: ${new Date(expiryTime * 1000)}`);
+      return true;
+    } catch (error) {
+      console.error('Error adding token to blacklist:', error);
+      return false;
+    }
+  }
+
+  // Check if token is blacklisted
+  isTokenBlacklisted(token) {
+    try {
+      const blacklistData = this.tokenBlacklist.get(token);
+      
+      if (!blacklistData) {
+        return false; // Token not blacklisted
+      }
+
+      // Check if token has expired
+      if (Date.now() > blacklistData.expiresAt) {
+        // Remove expired token from blacklist
+        this.tokenBlacklist.delete(token);
+        return false;
+      }
+
+      return true; // Token is blacklisted and not expired
+    } catch (error) {
+      console.error('Error checking token blacklist:', error);
+      return false; // Default to not blacklisted on error
+    }
+  }
+
+  // Remove token from blacklist (for testing)
+  removeFromBlacklist(token) {
+    return this.tokenBlacklist.delete(token);
+  }
+
+  // Get blacklist info (for debugging)
+  getBlacklistInfo(token) {
+    return this.tokenBlacklist.get(token);
+  }
+
+  // Cleanup expired blacklisted tokens
+  cleanupExpiredTokens() {
+    const now = Date.now();
+    let cleanedCount = 0;
+    
+    for (const [token, data] of this.tokenBlacklist.entries()) {
+      if (now > data.expiresAt) {
+        this.tokenBlacklist.delete(token);
+        cleanedCount++;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} expired blacklisted tokens`);
+    }
+  }
+
   // Cleanup expired data periodically
   startCleanupScheduler() {
     setInterval(() => {
@@ -245,6 +315,9 @@ class SecureOTPStorage {
           this.blockedIPs.delete(ipAddress);
         }
       }
+
+      // Cleanup expired blacklisted tokens
+      this.cleanupExpiredTokens();
     }, 5 * 60 * 1000); // Run cleanup every 5 minutes
   }
 }

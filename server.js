@@ -20,6 +20,7 @@ const {
 // Import routes
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const pricingRoutes = require('./routes/pricing');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -80,6 +81,9 @@ app.use('/api/auth/verify-otp', verifyRateLimit);
 
 // User management routes
 app.use('/api/users', userRoutes);
+
+// Pricing management routes
+app.use('/api/pricing', pricingRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

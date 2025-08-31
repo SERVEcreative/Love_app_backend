@@ -2,8 +2,13 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 const userService = require('../services/userService');
+const { supabaseAdmin } = require('../config/supabase');
+const NodeCache = require('node-cache');
 
 const router = express.Router();
+
+// Initialize cache for online users
+const onlineUsersCache = new NodeCache({ stdTTL: 15 }); // 15 seconds cache
 
 // Validation schemas
 const updateProfileSchema = Joi.object({
@@ -446,6 +451,172 @@ router.put('/status', authenticateToken, async (req, res) => {
   }
 });
 
+
+
+// Get online users for profile cards (minimal data) - MOVED HERE BEFORE /:userId
+router.get('/online', authenticateToken, async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+    const { 
+      page = 1,           // Page number (1-based)
+      limit = 10,          // Items per page
+      refresh = false      // Force refresh cache
+    } = req.query;
+    
+    console.log('🌐 Online users request from:', currentUserId);
+    console.log('📊 Pagination params - page:', page, 'limit:', limit);
+    
+    // Validate parameters
+    const validatedLimit = Math.min(Math.max(parseInt(limit), 1), 50);
+    const validatedPage = Math.max(parseInt(page), 1);
+    const validatedOffset = (validatedPage - 1) * validatedLimit;
+    
+    // Cache key
+    const cacheKey = `online_users_${currentUserId}_${validatedPage}_${validatedLimit}`;
+    
+    // Return cached data if available
+    if (!refresh && onlineUsersCache.has(cacheKey)) {
+      const cachedData = onlineUsersCache.get(cacheKey);
+      console.log('📦 Returning cached online users data');
+      return res.json(cachedData);
+    }
+
+    console.log('🔄 Fetching fresh online users data from database');
+
+    // Get total count for pagination
+    const { count: totalCount, error: countError } = await supabaseAdmin
+      .from('users')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'online')
+      .eq('is_active', true)
+      .neq('id', currentUserId);
+
+    if (countError) {
+      console.error('❌ Error getting total count:', countError);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to get total count'
+      });
+    }
+
+    // Fetch online users with pricing data using LEFT JOIN
+    const { data: onlineUsers, error } = await supabaseAdmin
+      .from('users')
+      .select(`
+        id,
+        name,
+        age,
+        avatar_url,
+        bio,
+        location,
+        status,
+        last_seen,
+        is_active,
+        user_pricing(
+          sms_cost,
+          audio_call_cost,
+          video_call_cost,
+          is_active
+        )
+      `)
+      .eq('status', 'online')
+      .eq('is_active', true)
+      .neq('id', currentUserId)
+      .order('last_seen', { ascending: false })
+      .range(validatedOffset, validatedOffset + validatedLimit - 1);
+
+    if (error) {
+      console.error('❌ Database error:', error);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to fetch online users'
+      });
+    }
+
+    // Process users with pricing data
+    const usersWithPricing = onlineUsers.map(user => {
+      // Get pricing data or use defaults
+      const pricing = user.user_pricing && user.user_pricing.length > 0 
+        ? user.user_pricing[0] 
+        : { 
+            sms_cost: 10.00, 
+            audio_call_cost: 25.00, 
+            video_call_cost: 50.00 
+          };
+      
+      // Calculate dynamic costs based on user attributes
+      let smsCost = parseFloat(pricing.sms_cost);
+      let audioCallCost = parseFloat(pricing.audio_call_cost);
+      let videoCallCost = parseFloat(pricing.video_call_cost);
+      
+      // Adjust costs based on user attributes
+      if (user.age && user.age < 25) {
+        smsCost += 5;        // Younger users cost more
+        audioCallCost += 10;
+        videoCallCost += 20;
+      }
+      
+      if (user.location && (user.location === 'New York' || user.location === 'Los Angeles')) {
+        smsCost += 3;        // Premium locations cost more
+        audioCallCost += 8;
+        videoCallCost += 15;
+      }
+      
+             return {
+         id: user.id,
+         name: user.name,
+         age: user.age,
+         profile_picture: user.avatar_url,
+         bio: user.bio,
+         location: user.location,
+         status: user.status,
+         last_seen: user.last_seen,
+         is_active: user.is_active,
+         pricing: {
+           sms_cost: Math.round(smsCost * 100) / 100,
+           audio_call_cost: Math.round(audioCallCost * 100) / 100,
+           video_call_cost: Math.round(videoCallCost * 100) / 100
+         }
+       };
+    });
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil((totalCount || 0) / validatedLimit);
+    const hasNextPage = validatedPage < totalPages;
+    const hasPrevPage = validatedPage > 1;
+
+    const response = {
+      success: true,
+      users: usersWithPricing,
+      pagination: {
+        currentPage: validatedPage,
+        totalPages: totalPages,
+        totalUsers: totalCount || 0,
+        usersPerPage: validatedLimit,
+        hasNextPage: hasNextPage,
+        hasPrevPage: hasPrevPage,
+        nextPage: hasNextPage ? validatedPage + 1 : null,
+        prevPage: hasPrevPage ? validatedPage - 1 : null
+      },
+      cached: false,
+      timestamp: new Date().toISOString()
+    };
+
+    // Cache the response
+    onlineUsersCache.set(cacheKey, response);
+    console.log(`✅ Cached ${onlineUsers.length} online users (page ${validatedPage}/${totalPages})`);
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Error in online users API:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 // Get user by ID (public profile)
 router.get('/:userId', authenticateToken, async (req, res) => {
   try {
@@ -509,5 +680,53 @@ router.get('/:userId', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// Get full user profile (when user clicks on profile card)
+router.get('/profile/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log(`👤 Fetching full profile for user: ${userId}`);
+
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('❌ Database error:', error);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Database error'
+      });
+    }
+
+    if (!user) {
+      console.log('❌ User not found:', userId);
+      return res.status(404).json({ 
+        success: false,
+        error: 'User not found' 
+      });
+    }
+
+    console.log(`✅ Profile fetched successfully for user: ${userId}`);
+
+    res.json({
+      success: true,
+      user: user,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching user profile:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+
 
 module.exports = router;

@@ -641,6 +641,109 @@ router.get('/security-status/:phoneNumber', (req, res) => {
   }
 });
 
+// Logout endpoint
+router.post('/logout', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const phoneNumber = req.user.phoneNumber;
+    const token = req.headers.authorization?.split(' ')[1]; // Extract token from header
+    const clientIP = getClientIP(req);
+    const userAgent = getUserAgent(req);
+
+    console.log(`🚪 Logout request for user: ${userId} (${phoneNumber})`);
+
+    // 1. Update user status to offline
+    const { data: updatedUser, error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        status: 'offline',
+        last_seen: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating user status:', updateError);
+      // Continue with logout even if status update fails
+    } else {
+      console.log(`✅ User status updated to offline: ${userId}`);
+    }
+
+    // 2. Clear user sessions
+    const { error: sessionError } = await supabaseAdmin
+      .from('user_sessions')
+      .delete()
+      .eq('user_id', userId);
+
+    if (sessionError) {
+      console.error('Error clearing user sessions:', sessionError);
+      // Continue with logout even if session cleanup fails
+    } else {
+      console.log(`✅ User sessions cleared: ${userId}`);
+    }
+
+    // 3. Log logout activity
+    try {
+      await supabaseAdmin
+        .from('user_activity_logs')
+        .insert({
+          user_id: userId,
+          activity_type: 'logout',
+          activity_details: {
+            logout_method: 'app_logout',
+            logout_time: new Date().toISOString(),
+            ip_address: clientIP,
+            user_agent: userAgent,
+            logout_success: true
+          },
+          ip_address: clientIP,
+          user_agent: userAgent
+        });
+
+      console.log(`✅ Logout activity logged: ${userId}`);
+    } catch (logError) {
+      console.error('Error logging logout activity:', logError);
+      // Continue with logout even if logging fails
+    }
+
+    // 4. Add token to blacklist (using otpStorage for consistency)
+    if (token) {
+      try {
+        // Store token in blacklist with expiration (24 hours from now)
+        const tokenExpiry = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24 hours
+        otpStorage.addToBlacklist(token, tokenExpiry);
+        console.log(`🔒 Token blacklisted for user: ${userId}`);
+      } catch (blacklistError) {
+        console.error('Error blacklisting token:', blacklistError);
+        // Continue with logout even if blacklisting fails
+      }
+    }
+
+    console.log(`✅ Logout successful for user: ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully',
+      logoutTime: new Date().toISOString(),
+      sessionCleared: true,
+      user: {
+        id: userId,
+        phoneNumber: phoneNumber,
+        status: 'offline'
+      }
+    });
+
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Logout failed',
+      message: 'Unable to complete logout. Please try again.'
+    });
+  }
+});
+
 // Debug endpoint to show complete user data in database (remove in production)
 router.get('/debug-user/:phoneNumber', async (req, res) => {
   try {
