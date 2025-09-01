@@ -21,6 +21,10 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 
 // Create admin client for backend operations (bypasses RLS)
+if (!supabaseServiceKey) {
+  console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY not found. Using anon key - RLS policies may block operations.');
+}
+
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey || supabaseKey, {
   auth: {
     autoRefreshToken: false,

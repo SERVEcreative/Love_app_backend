@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 // Import security middleware
@@ -21,6 +23,10 @@ const {
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const pricingRoutes = require('./routes/pricing');
+const chatRoutes = require('./routes/chat');
+
+// Import Socket.io handler
+const ChatSocket = require('./socket/chatSocket');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -85,6 +91,9 @@ app.use('/api/users', userRoutes);
 // Pricing management routes
 app.use('/api/pricing', pricingRoutes);
 
+// Chat management routes
+app.use('/api/chat', chatRoutes);
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
@@ -96,10 +105,23 @@ app.use('*', (req, res) => {
 // Global error handler (must be last)
 app.use(errorHandler);
 
+// Create HTTP server and integrate Socket.io
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "*", // Configure this properly for production
+    methods: ["GET", "POST"]
+  }
+});
+
+// Initialize chat socket
+const chatSocket = new ChatSocket(io);
+
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp OTP Authentication ready`);
+  console.log(`💬 Chat system ready`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🔒 Security features: Rate limiting, IP blocking, Request validation`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
