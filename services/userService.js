@@ -1,5 +1,5 @@
-const { supabaseAdmin } = require('../config/supabase');
-const { v4: uuidv4 } = require('uuid');
+const { supabaseAdmin } = require("../config/supabase");
+const { v4: uuidv4 } = require("uuid");
 
 class UserService {
   constructor() {
@@ -11,13 +11,14 @@ class UserService {
     try {
       // Check if user already exists
       const { data: existingUser, error: fetchError } = await supabaseAdmin
-        .from('users')
-        .select('*')
-        .eq('phone_number', phoneNumber)
+        .from("users")
+        .select("*")
+        .eq("phone_number", phoneNumber)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
-        throw new Error('Failed to check existing user');
+      if (fetchError && fetchError.code !== "PGRST116") {
+        // PGRST116 = no rows returned
+        throw new Error("Failed to check existing user");
       }
 
       const now = new Date();
@@ -28,22 +29,22 @@ class UserService {
         const updateData = {
           ...userData,
           is_verified: true,
-          verification_status: 'verified',
+          verification_status: "verified",
           verification_date: now,
           last_login_at: now,
           login_count: existingUser.login_count + 1,
-          updated_at: now
+          updated_at: now,
         };
 
         const { data: updatedUser, error: updateError } = await supabaseAdmin
-          .from('users')
+          .from("users")
           .update(updateData)
-          .eq('phone_number', phoneNumber)
+          .eq("phone_number", phoneNumber)
           .select()
           .single();
 
         if (updateError) {
-          throw new Error('Failed to update user');
+          throw new Error("Failed to update user");
         }
 
         user = updatedUser;
@@ -53,21 +54,21 @@ class UserService {
           id: uuidv4(),
           phone_number: phoneNumber,
           is_verified: true,
-          verification_status: 'verified',
+          verification_status: "verified",
           verification_date: now,
           last_login_at: now,
           login_count: 1,
-          ...userData
+          ...userData,
         };
 
         const { data: newUser, error: insertError } = await supabaseAdmin
-          .from('users')
+          .from("users")
           .insert(newUserData)
           .select()
           .single();
 
         if (insertError) {
-          throw new Error('Failed to create user');
+          throw new Error("Failed to create user");
         }
 
         user = newUser;
@@ -81,14 +82,13 @@ class UserService {
 
       return {
         success: true,
-        user: user
+        user: user,
       };
-
     } catch (error) {
-      console.error('Error creating/updating user:', error);
+      console.error("Error creating/updating user:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -97,78 +97,77 @@ class UserService {
   async createDefaultPreferences(userId) {
     try {
       const { error: prefError } = await supabaseAdmin
-        .from('user_preferences')
+        .from("user_preferences")
         .insert({
           user_id: userId,
           push_notifications: true,
           email_notifications: true,
           sms_notifications: false,
-          privacy_level: 'public',
+          privacy_level: "public",
           show_online_status: true,
           show_last_seen: true,
-          allow_profile_views: true
+          allow_profile_views: true,
         });
 
       if (prefError) {
-        console.error('Error creating default preferences:', prefError);
+        console.error("Error creating default preferences:", prefError);
       }
     } catch (error) {
-      console.error('Error creating default preferences:', error);
+      console.error("Error creating default preferences:", error);
     }
   }
 
   // Get user by ID
   async getUserById(userId) {
     try {
-      console.log('🔍 getUserById called with userId:', userId);
-      
+      console.log("🔍 getUserById called with userId:", userId);
+
       // Check cache first
       if (this.userCache.has(userId)) {
-        console.log('✅ User found in cache');
+        console.log("✅ User found in cache");
         const cachedUser = this.userCache.get(userId);
         return {
           success: true,
-          user: cachedUser
+          user: cachedUser,
         };
       }
 
-      console.log('🔍 Querying database for user:', userId);
+      console.log("🔍 Querying database for user:", userId);
       const { data: user, error } = await supabaseAdmin
-        .from('users')
-        .select('*')
-        .eq('id', userId)
+        .from("users")
+        .select("*")
+        .eq("id", userId)
         .single();
 
       if (error) {
-        console.log('❌ Database error:', error);
+        console.log("❌ Database error:", error);
         return {
           success: false,
-          error: 'User not found'
+          error: "User not found",
         };
       }
 
       if (!user) {
-        console.log('❌ No user found in database');
+        console.log("❌ No user found in database");
         return {
           success: false,
-          error: 'User not found'
+          error: "User not found",
         };
       }
 
-      console.log('✅ User found in database:', user.id);
+      console.log("✅ User found in database:", user.id);
       // Cache the user
       this.userCache.set(userId, user);
-      
+
       return {
         success: true,
-        user: user
+        user: user,
       };
-
     } catch (error) {
-      console.error('❌ Error getting user by ID:', error);
+      console.error("❌ Error getting user by ID:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -177,9 +176,9 @@ class UserService {
   async getUserByPhone(phoneNumber) {
     try {
       const { data: user, error } = await supabaseAdmin
-        .from('users')
-        .select('*')
-        .eq('phone_number', phoneNumber)
+        .from("users")
+        .select("*")
+        .eq("phone_number", phoneNumber)
         .single();
 
       if (error) {
@@ -187,9 +186,8 @@ class UserService {
       }
 
       return user;
-
     } catch (error) {
-      console.error('Error getting user by phone:', error);
+      console.error("Error getting user by phone:", error);
       return null;
     }
   }
@@ -198,14 +196,14 @@ class UserService {
   async updateUserProfile(userId, profileData) {
     try {
       const { data: updatedUser, error } = await supabaseAdmin
-        .from('users')
+        .from("users")
         .update(profileData)
-        .eq('id', userId)
+        .eq("id", userId)
         .select()
         .single();
 
       if (error) {
-        throw new Error('Failed to update profile');
+        throw new Error("Failed to update profile");
       }
 
       // Update cache
@@ -213,37 +211,39 @@ class UserService {
 
       return {
         success: true,
-        user: updatedUser
+        user: updatedUser,
       };
-
     } catch (error) {
-      console.error('Error updating user profile:', error);
+      console.error("Error updating user profile:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
 
   // Log user activity
-  async logActivity(userId, activityType, details = {}, ipAddress = null, userAgent = null) {
+  async logActivity(
+    userId,
+    activityType,
+    details = {},
+    ipAddress = null,
+    userAgent = null
+  ) {
     try {
-      const { error } = await supabaseAdmin
-        .from('user_activity_logs')
-        .insert({
-          user_id: userId,
-          activity_type: activityType,
-          details: details,
-          ip_address: ipAddress,
-          user_agent: userAgent,
-          timestamp: new Date().toISOString()
-        });
+      const { error } = await supabaseAdmin.from("user_activity_logs").insert({
+        user_id: userId,
+        activity_type: activityType,
+        activity_details: details,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      });
 
       if (error) {
-        console.error('Error logging activity:', error);
+        console.error("Error logging activity:", error);
       }
     } catch (error) {
-      console.error('Error logging activity:', error);
+      console.error("Error logging activity:", error);
     }
   }
 
@@ -251,30 +251,30 @@ class UserService {
   async getUserStats(userId) {
     try {
       const { data: user, error: userError } = await supabaseAdmin
-        .from('users')
-        .select('*')
-        .eq('id', userId)
+        .from("users")
+        .select("*")
+        .eq("id", userId)
         .single();
 
       if (userError) {
-        throw new Error('User not found');
+        throw new Error("User not found");
       }
 
       const { data: connections, error: connError } = await supabaseAdmin
-        .from('user_connections')
-        .select('*')
-        .eq('user_id', userId);
+        .from("user_connections")
+        .select("*")
+        .eq("user_id", userId);
 
       const { data: photos, error: photoError } = await supabaseAdmin
-        .from('user_photos')
-        .select('*')
-        .eq('user_id', userId);
+        .from("user_photos")
+        .select("*")
+        .eq("user_id", userId);
 
       const { data: activities, error: activityError } = await supabaseAdmin
-        .from('user_activity_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .order('timestamp', { ascending: false })
+        .from("user_activity_logs")
+        .select("*")
+        .eq("user_id", userId)
+        .order("timestamp", { ascending: false })
         .limit(10);
 
       return {
@@ -287,15 +287,14 @@ class UserService {
           loginCount: user.login_count || 0,
           lastLogin: user.last_login_at,
           isVerified: user.is_verified,
-          verificationStatus: user.verification_status
-        }
+          verificationStatus: user.verification_status,
+        },
       };
-
     } catch (error) {
-      console.error('Error getting user stats:', error);
+      console.error("Error getting user stats:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -304,28 +303,31 @@ class UserService {
   async searchUsers(query, limit = 20) {
     try {
       const { data: users, error } = await supabaseAdmin
-        .from('users')
-        .select('id, name, phone_number, bio, location, profile_completion_percentage, is_verified, created_at')
-        .or(`name.ilike.%${query}%,bio.ilike.%${query}%,location.ilike.%${query}%`)
-        .eq('is_verified', true)
-        .order('created_at', { ascending: false })
+        .from("users")
+        .select(
+          "id, name, phone_number, bio, location, profile_completion_percentage, is_verified, created_at"
+        )
+        .or(
+          `name.ilike.%${query}%,bio.ilike.%${query}%,location.ilike.%${query}%`
+        )
+        .eq("is_verified", true)
+        .order("created_at", { ascending: false })
         .limit(limit);
 
       if (error) {
-        throw new Error('Failed to search users');
+        throw new Error("Failed to search users");
       }
 
       return {
         success: true,
-        users: users || []
+        users: users || [],
       };
-
     } catch (error) {
-      console.error('Error searching users:', error);
+      console.error("Error searching users:", error);
       return {
         success: false,
         error: error.message,
-        users: []
+        users: [],
       };
     }
   }
@@ -335,42 +337,42 @@ class UserService {
     try {
       // Check if preferences exist
       const { data: existingPrefs, error: fetchError } = await supabaseAdmin
-        .from('user_preferences')
-        .select('*')
-        .eq('user_id', userId)
+        .from("user_preferences")
+        .select("*")
+        .eq("user_id", userId)
         .single();
 
       let result;
       if (existingPrefs) {
         // Update existing preferences
         const { data: updatedPrefs, error } = await supabaseAdmin
-          .from('user_preferences')
+          .from("user_preferences")
           .update({
             ...preferencesData,
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
           })
-          .eq('user_id', userId)
+          .eq("user_id", userId)
           .select()
           .single();
 
         if (error) {
-          throw new Error('Failed to update preferences');
+          throw new Error("Failed to update preferences");
         }
 
         result = updatedPrefs;
       } else {
         // Create new preferences
         const { data: newPrefs, error } = await supabaseAdmin
-          .from('user_preferences')
+          .from("user_preferences")
           .insert({
             user_id: userId,
-            ...preferencesData
+            ...preferencesData,
           })
           .select()
           .single();
 
         if (error) {
-          throw new Error('Failed to create preferences');
+          throw new Error("Failed to create preferences");
         }
 
         result = newPrefs;
@@ -378,14 +380,13 @@ class UserService {
 
       return {
         success: true,
-        preferences: result
+        preferences: result,
       };
-
     } catch (error) {
-      console.error('Error updating user preferences:', error);
+      console.error("Error updating user preferences:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -393,31 +394,30 @@ class UserService {
   // Add user interests
   async addUserInterests(userId, interests) {
     try {
-      const interestsToInsert = interests.map(interest => ({
+      const interestsToInsert = interests.map((interest) => ({
         user_id: userId,
         interest_name: interest.name,
-        interest_category: interest.category || 'General'
+        interest_category: interest.category || "General",
       }));
 
       const { data: insertedInterests, error } = await supabaseAdmin
-        .from('user_interests')
+        .from("user_interests")
         .insert(interestsToInsert)
         .select();
 
       if (error) {
-        throw new Error('Failed to add interests');
+        throw new Error("Failed to add interests");
       }
 
       return {
         success: true,
-        interests: insertedInterests
+        interests: insertedInterests,
       };
-
     } catch (error) {
-      console.error('Error adding user interests:', error);
+      console.error("Error adding user interests:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -429,28 +429,27 @@ class UserService {
         user_id: userId,
         photo_url: photo.url,
         is_primary: photo.is_primary || false,
-        photo_order: index + 1
+        photo_order: index + 1,
       }));
 
       const { data: insertedPhotos, error } = await supabaseAdmin
-        .from('user_photos')
+        .from("user_photos")
         .insert(photosToInsert)
         .select();
 
       if (error) {
-        throw new Error('Failed to add photos');
+        throw new Error("Failed to add photos");
       }
 
       return {
         success: true,
-        photos: insertedPhotos
+        photos: insertedPhotos,
       };
-
     } catch (error) {
-      console.error('Error adding user photos:', error);
+      console.error("Error adding user photos:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -459,14 +458,14 @@ class UserService {
   async updateUserStatus(userId, status) {
     try {
       const { data: updatedUser, error } = await supabaseAdmin
-        .from('users')
+        .from("users")
         .update({ status: status, updated_at: new Date().toISOString() })
-        .eq('id', userId)
+        .eq("id", userId)
         .select()
         .single();
 
       if (error) {
-        throw new Error('Failed to update status');
+        throw new Error("Failed to update status");
       }
 
       // Update cache
@@ -474,15 +473,32 @@ class UserService {
 
       return {
         success: true,
-        user: updatedUser
+        user: updatedUser,
       };
-
     } catch (error) {
-      console.error('Error updating user status:', error);
+      console.error("Error updating user status:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
+    }
+  }
+
+  // Upload image file (for Flutter compatibility)
+  async uploadImageFile(imagePath) {
+    try {
+      console.log("📸 uploadImageFile called with path:", imagePath);
+
+      // For now, return a placeholder URL since the actual upload is handled by the endpoint
+      // In a real implementation, you might want to process the file here
+      const imageUrl = `https://placeholder.com/400x400?text=Profile+Image`;
+
+      console.log("✅ Image URL generated:", imageUrl);
+
+      return imageUrl;
+    } catch (error) {
+      console.error("❌ Error in uploadImageFile:", error);
+      throw new Error("Failed to process image upload");
     }
   }
 
