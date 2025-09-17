@@ -20,6 +20,7 @@
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "multer": "^2.0.2",
     "node-cache": "^5.1.2",
     "redis": "^4.6.10",
     "socket.io": "^4.8.1",
