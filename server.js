@@ -36,13 +36,50 @@ app.use(securityHeaders);
 app.use(compression());
 app.use(morgan("combined"));
 
-// CORS configuration with enhanced security
+// CORS configuration with enhanced security - Handle Flutter web apps
+const allowedOrigins = [
+  // Flutter web apps (dynamic ports)
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  // Mobile development (previous/current IPs)
+  "http://192.168.1.3:5000",
+  "http://192.168.1.5:5000",
+  "http://192.168.1.7:5000",
+  // Environment variable override
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, curl requests)
+      if (!origin) return callback(null, true);
+
+      const isAllowed = allowedOrigins.some((allowedOrigin) => {
+        if (typeof allowedOrigin === "string") {
+          return origin === allowedOrigin;
+        } else if (allowedOrigin instanceof RegExp) {
+          return allowedOrigin.test(origin);
+        }
+        return false;
+      });
+
+      if (isAllowed) {
+        console.log(`🌐 Allowing origin: ${origin}`);
+        callback(null, true);
+      } else {
+        console.log(`🚫 CORS blocked origin: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+    ],
     exposedHeaders: ["X-Total-Count"],
     maxAge: 86400, // 24 hours
   })
@@ -120,11 +157,12 @@ const io = new Server(server, {
 const chatSocket = new ChatSocket(io);
 
 // Start server
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp OTP Authentication ready`);
   console.log(`💬 Chat system ready`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Network access: http://127.0.0.1:${PORT}/health`);
   console.log(
     `🔒 Security features: Rate limiting, IP blocking, Request validation`
   );
