@@ -5,7 +5,6 @@ const compression = require("compression");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { createServer } = require("http");
-const { Server } = require("socket.io");
 require("dotenv").config();
 
 // Import security middleware
@@ -23,10 +22,7 @@ const {
 const authRoutes = require("./routes/auth");
 const userRoutes = require("./routes/users");
 const pricingRoutes = require("./routes/pricing");
-const chatRoutes = require("./routes/chat");
-
-// Import Socket.io handler
-const ChatSocket = require("./socket/chatSocket");
+// No chat routes needed - using Supabase Realtime for calls
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -36,13 +32,48 @@ app.use(securityHeaders);
 app.use(compression());
 app.use(morgan("combined"));
 
-// CORS configuration with enhanced security
+// CORS configuration with enhanced security - Handle Flutter web apps
+const allowedOrigins = [
+  // Flutter web apps (dynamic ports)
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  // Mobile development
+  'http://192.168.1.3:5000',  // Current local IP
+  'http://192.168.1.5:5000',  // Previous IP
+  'http://192.168.1.7:5000',  // Previous IP
+  // External server IP
+  'http://152.58.87.130:5000',  // External server IP
+  // Environment variable
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, curl requests)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin matches any allowed pattern
+      const isAllowed = allowedOrigins.some(allowedOrigin => {
+        if (typeof allowedOrigin === 'string') {
+          return origin === allowedOrigin;
+        } else if (allowedOrigin instanceof RegExp) {
+          return allowedOrigin.test(origin);
+        }
+        return false;
+      });
+      
+      if (isAllowed) {
+        console.log(`🌐 Allowing origin: ${origin}`);
+        callback(null, true);
+      } else {
+        console.log(`🚫 CORS blocked origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
     exposedHeaders: ["X-Total-Count"],
     maxAge: 86400, // 24 hours
   })
@@ -93,8 +124,7 @@ app.use("/api/users", userRoutes);
 // Pricing management routes
 app.use("/api/pricing", pricingRoutes);
 
-// Chat management routes
-app.use("/api/chat", chatRoutes);
+// No chat routes needed - using Supabase Realtime
 
 // 404 handler
 app.use("*", (req, res) => {
@@ -107,24 +137,16 @@ app.use("*", (req, res) => {
 // Global error handler (must be last)
 app.use(errorHandler);
 
-// Create HTTP server and integrate Socket.io
+// Create HTTP server
 const server = createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "*", // Configure this properly for production
-    methods: ["GET", "POST"],
-  },
-});
-
-// Initialize chat socket
-const chatSocket = new ChatSocket(io);
 
 // Start server
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 WhatsApp OTP Authentication ready`);
-  console.log(`💬 Chat system ready`);
+  console.log(`📞 Call system ready (Supabase Realtime)`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Network access: http://192.168.1.7:${PORT}/health`);
   console.log(
     `🔒 Security features: Rate limiting, IP blocking, Request validation`
   );
